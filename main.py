@@ -25,7 +25,7 @@ def get_access_token():
         page.fill("#Username", USERNAME)
         page.fill("#Password", PASSWORD)
 
-        page.keyboard.press("Enter")
+        page.click('button[type="submit"]')
 
         page.wait_for_url("**/loggedin", timeout=30000)
 
