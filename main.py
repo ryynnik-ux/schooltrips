@@ -20,7 +20,7 @@ def get_access_token():
 
         page = browser.new_page()
 
-        page.goto("https://www.kouluun.fi")
+        page.goto("https://login.kouluun.fi/Account/Login")
 
         page.fill("#Username", USERNAME)
         page.fill("#Password", PASSWORD)
