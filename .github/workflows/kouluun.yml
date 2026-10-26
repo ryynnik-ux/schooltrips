@@ -1,0 +1,30 @@
+name: Kouluun Telegram
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 18 * * *"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: playwright install chromium
+
+      - run: python main.py
+        env:
+          KOULUUN_USER: ${{ secrets.KOULUUN_USER }}
+          KOULUUN_PASS: ${{ secrets.KOULUUN_PASS }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          PASSENGER_ID: ${{ secrets.PASSENGER_ID }}
