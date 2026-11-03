@@ -106,6 +106,15 @@ def get_access_token():
         print("Token acquired")
 
         return token_json["accessToken"]
+        
+def main():
+    print("MAIN FUNCTION STARTED")
+
+    token = get_access_token()
+
+    print(token)
+
+
 if __name__ == "__main__":
     print("CALLING MAIN")
     main()
