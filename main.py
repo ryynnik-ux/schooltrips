@@ -1,3 +1,4 @@
+print("FILE LOADED")
 def get_access_token():
 
     print("Opening login page...")
@@ -105,3 +106,8 @@ def get_access_token():
         print("Token acquired")
 
         return token_json["accessToken"]
+print("BEFORE MAIN")
+
+if __name__ == "__main__":
+    print("CALLING MAIN")
+    main()
