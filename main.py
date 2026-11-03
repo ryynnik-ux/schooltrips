@@ -3,48 +3,45 @@ import requests
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright
 
-
 KOULUUN_USER = os.environ["KOULUUN_USER"]
 KOULUUN_PASS = os.environ["KOULUUN_PASS"]
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
-PASSENGER_ID = os.environ["PASSENGER_ID"]
-
-
-LOGIN_URL = "https://login.kouluun.fi/Account/Login"
 TOKEN_URL = "https://www.kouluun.fi/api/auth/access_token"
 
 
 def get_access_token():
     with sync_playwright() as p:
+
         browser = p.chromium.launch(
-            headless=True
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
 
-        page = browser.new_page()
+        context = browser.new_context()
 
-        print("Opening login page...")
+        page = context.new_page()
+
+        print("Opening Kouluun.fi...")
+
         page.goto(
-            LOGIN_URL,
+            "https://www.kouluun.fi",
             wait_until="networkidle",
             timeout=60000
         )
 
-        print("Current URL:", page.url)
+        print("Login page URL:")
+        print(page.url)
 
-        page.locator("#Username").wait_for(
-            timeout=60000
-        )
-
-        page.fill(
-            "#Username",
+        page.locator("#Username").fill(
             KOULUUN_USER
         )
 
-        page.fill(
-            "#Password",
+        page.locator("#Password").fill(
             KOULUUN_PASS
         )
 
@@ -53,54 +50,72 @@ def get_access_token():
             full_page=True
         )
 
-        print("Submitting login form...")
+        print("Submitting login")
 
-        page.click('button[type="submit"]')
+        page.locator(
+            'button[type="submit"]'
+        ).click()
 
         page.wait_for_timeout(10000)
 
-        print("URL after login:", page.url)
+        print("Current URL after login:")
+        print(page.url)
 
         page.screenshot(
             path="after_login.png",
             full_page=True
         )
 
-        response = page.request.get(
+        if "passengers" not in page.url:
+            print(
+                page.locator("body")
+                .inner_text()[:5000]
+            )
+
+            raise Exception(
+                f"Login failed. Current URL: {page.url}"
+            )
+
+        print("Getting access token...")
+
+        response = context.request.get(
             TOKEN_URL
         )
 
         print(
-            "Token response status:",
+            "Token status:",
             response.status
         )
 
         if response.status != 200:
             raise Exception(
-                f"Token request failed: {response.status}"
+                f"Token failed: {response.status}"
             )
 
-        token_data = response.json()
+        token_json = response.json()
 
         browser.close()
 
-        return token_data["accessToken"]
+        print("Token acquired")
+
+        return token_json["accessToken"]
 
 
-def get_trips(token):
-    url = (
-        "https://www.kouluun.fi/api/passenger/"
-        f"{PASSENGER_ID}/trips"
-    )
+def get_passengers(token):
 
     headers = {
         "Authorization": f"Bearer {token}"
     }
 
     response = requests.get(
-        url,
+        "https://www.kouluun.fi/api/passenger",
         headers=headers,
         timeout=30
+    )
+
+    print(
+        "Passenger status:",
+        response.status_code
     )
 
     response.raise_for_status()
@@ -108,52 +123,87 @@ def get_trips(token):
     return response.json()
 
 
-def find_next_trip(trips):
-    now = datetime.now(timezone.utc)
+def get_trips(
+    token,
+    passenger_id
+):
 
-    future_trips = []
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
 
-    for trip in trips:
-        trip_time = datetime.fromisoformat(
-            trip["startDateTime"].replace(
-                "Z",
-                "+00:00"
-            )
-        )
-
-        if trip_time > now:
-            future_trips.append(trip)
-
-    if not future_trips:
-        return None
-
-    future_trips.sort(
-        key=lambda x: x["startDateTime"]
+    url = (
+        f"https://www.kouluun.fi/api/passenger/"
+        f"{passenger_id}/trips"
     )
 
-    return future_trips[0]
+    response = requests.get(
+        url,
+        headers=headers,
+        timeout=30
+    )
+
+    print(
+        f"Trips {passenger_id}:",
+        response.status_code
+    )
+
+    if response.status_code != 200:
+        print(response.text)
+        return []
+
+    return response.json()
+
+
+def find_next_trip(trips):
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    future = []
+
+    for trip in trips:
+
+        start = datetime.fromisoformat(
+            trip["startDateTime"]
+            .replace("Z", "+00:00")
+        )
+
+        if start > now:
+            future.append(trip)
+
+    if not future:
+        return None
+
+    future.sort(
+        key=lambda x:
+        x["startDateTime"]
+    )
+
+    return future[0]
 
 
 def format_trip(trip):
-    trip_time = datetime.fromisoformat(
-        trip["startDateTime"].replace(
-            "Z",
-            "+00:00"
-        )
+
+    dt = datetime.fromisoformat(
+        trip["startDateTime"]
+        .replace("Z", "+00:00")
     )
 
     return (
         "🚕 Seuraava koulukuljetus\n\n"
-        f"📅 {trip_time.strftime('%d.%m.%Y %H:%M')}\n"
-        f"🚐 Auto: {trip['carName']}\n\n"
+        f"📅 {dt.strftime('%d.%m.%Y %H:%M')}\n"
+        f"🚐 Auto: {trip.get('carName', '-')}\n\n"
         f"📍 Lähtö:\n"
-        f"{trip['startPlace']}\n\n"
+        f"{trip.get('startPlace', '-')}\n\n"
         f"🏫 Määränpää:\n"
-        f"{trip['endPlace']}"
+        f"{trip.get('endPlace', '-')}"
     )
 
 
 def send_telegram(message):
+
     response = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         json={
@@ -167,24 +217,47 @@ def send_telegram(message):
 
 
 def main():
-    print("Logging in...")
 
     token = get_access_token()
 
-    print("Token acquired")
-
-    trips = get_trips(token)
-
-    print(
-        f"Trips returned: {len(trips)}"
+    passengers = get_passengers(
+        token
     )
 
-    next_trip = find_next_trip(trips)
+    print(
+        f"Passengers: {len(passengers)}"
+    )
+
+    next_trip = None
+
+    for passenger in passengers:
+
+        passenger_id = passenger["id"]
+
+        print(
+            "Checking passenger:",
+            passenger_id
+        )
+
+        trips = get_trips(
+            token,
+            passenger_id
+        )
+
+        trip = find_next_trip(
+            trips
+        )
+
+        if trip:
+            next_trip = trip
+            break
 
     if next_trip is None:
+
         send_telegram(
             "Ei tulevia koulukuljetuksia."
         )
+
         return
 
     message = format_trip(
@@ -195,7 +268,9 @@ def main():
 
     send_telegram(message)
 
-    print("Telegram message sent")
+    print(
+        "Telegram sent successfully"
+    )
 
 
 if __name__ == "__main__":
